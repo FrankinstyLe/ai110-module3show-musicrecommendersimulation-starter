@@ -104,7 +104,7 @@ You can add more tests in `tests/test_recommender.py`.
 ---
 
 ## Sample Recommendation Output
-
+### Profile 1: genre=pop, mood=happy, energy=0.8
 ```
 ============================================================
   TOP RECOMMENDATIONS
@@ -133,39 +133,141 @@ You can add more tests in `tests/test_recommender.py`.
 
 ============================================================
 ```
-# e.g.:
-# User profile: genre=indie, mood=chill, energy=low
-# Recommendations:
-#   1. ...
-#   2. ...
-#   3. ...
+### Profile 2: genre=rock, mood=sad, energy=-1.0
 ```
+============================================================
+  TOP RECOMMENDATIONS
+  For: genre=rock, mood=sad, energy=-1.0
+============================================================
 
+  1.  Storm Runner - Voltline
+      Score: 1.08  |  rock, intense
+      Because: matches your favorite genre (rock), energetic, non-acoustic sound
+
+  2.  Velvet Hours - Marlowe Rae
+      Score: -0.42  |  r&b, romantic
+      Because: a reasonable all-round match
+
+  3.  Spacewalk Thoughts - Orbit Bloom
+      Score: -0.48  |  ambient, chill
+      Because: a reasonable all-round match
+
+  4.  Midnight Coding - LoRoom
+      Score: -0.55  |  lofi, chill
+      Because: a reasonable all-round match
+
+  5.  Moonlit Sonata Drift - Aria Vance
+      Score: -0.55  |  classical, melancholy
+      Because: a reasonable all-round match
+
+============================================================
+```
+### Profile 3: genre=jazz, mood=sad, energy=1.0
+```
+============================================================
+  TOP RECOMMENDATIONS
+  For: genre=jazz, mood=sad, energy=1.0
+============================================================
+
+  1.  Iron Verdict - Ashfall
+      Score: 2.90  |  metal, aggressive
+      Because: energy level is a great fit, energetic, non-acoustic sound
+
+  2.  Voltage Bloom - Pulsewave
+      Score: 2.87  |  edm, energetic
+      Because: energy level is a great fit, energetic, non-acoustic sound
+
+  3.  Coffee Shop Stories - Slow Stereo
+      Score: 2.85  |  jazz, relaxed
+      Because: matches your favorite genre (jazz)
+
+  4.  Gym Hero - Max Pulse
+      Score: 2.81  |  pop, intense
+      Because: energy level is a great fit, energetic, non-acoustic sound
+
+  5.  Storm Runner - Voltline
+      Score: 2.72  |  rock, intense
+      Because: energy level is a great fit, energetic, non-acoustic sound
+
+============================================================
+```
 **Screenshot or video** *(optional)*: <!-- Insert a screenshot or demo video link here -->
 
 ---
 
 ## Experiments You Tried
 
-Use this section to document the experiments you ran. For example:
+I experimented with the following changes to the scoring rule:
+- Weighted the genre by 3/4 instead of 2.0, to see if it would diversify recommendations more.
+- Added a new feature for acousticness, giving a bonus if the user likes acoustic tracks and the song is acoustic.
+- Temporarily disabled the mood match bonus to see how it affected recommendations.
 
-- What happened when you changed the weight on genre from 2.0 to 0.5
-- What happened when you added tempo or valence to the score
-- How did your system behave for different types of users
+The results of these experiments were:
+- The ranking slightly changed for all 3 profiles, with more diverse genres appearing in the third recommendation and below.
+- The accousticness almost doesn't affect the top recommendations, but it does change the lower-ranked songs, especially for users who prefer acoustic tracks. It does heavily affect if the user profile negative energy level. 
+- In general, the top 2 recommendations for each profile remained the same, but the lower-ranked songs changed more significantly.
 
 ---
 
 ## Limitations and Risks
 
-Summarize some limitations of your recommender.
+Beyond the obvious limits (tiny 20-song catalog, no understanding of lyrics or
+language), I stress-tested the scoring rule with adversarial and edge-case
+profiles and found several **structural biases** — filter bubbles that affect
+users even when they enter perfectly valid preferences. I measured these against
+the actual catalog, so they aren't hypothetical.
 
-Examples:
+**1. The "energy gap" underserves moderate-energy users.**
+The catalog's energy is bimodal — 7 songs below 0.5, 9 songs at 0.7 or above,
+and only 4 in the middle (with a real empty gap between 0.64 and 0.75). Because
+the energy term is a symmetric linear penalty (`1 − abs(target − energy)`), a
+user who wants energy ≈ 0.6 has almost nothing close, so the fixed genre/mood
+bonuses drag them toward whichever extreme cluster is nearer. High- and
+low-energy tastes are served well; the middle is a blind spot the data can't see.
 
-- It only works on a tiny catalog
-- It does not understand lyrics or language
-- It might over favor one genre or mood
+**2. Energy and acousticness are secretly the same axis (double jeopardy).**
+In this catalog `corr(energy, acousticness) = −0.97` — nearly perfect. The two
+"independent" scoring terms are really one signal counted twice. A user who wants
+calm, low-energy music gets low-energy songs (which are acoustic), which are then
+penalized *again* by the default non-acoustic reward. One preference, two strikes.
 
-You will go deeper on this in your model card.
+**3. There is no "neutral" on acoustic.**
+`likes_acoustic` is a boolean that *always* contributes up to ±1.0, and it
+defaults to `False`. So every user — including those who never expressed an
+opinion — is silently biased toward electronic/produced tracks (edm, metal, pop)
+and away from jazz, classical, folk, ambient, and lofi. There is no "don't care."
+
+**4. Exact-match genre/mood kills discovery.**
+Genre and mood are compared with strict string equality and no notion of
+similarity. "pop" and "indie pop" are treated as unrelated; so are "chill",
+"relaxed", and "focused". The system is pure exploitation with zero exploration —
+it can only ever reinforce the one label the user typed, which is the textbook
+definition of a filter bubble.
+
+**5. Catalog imbalance penalizes niche-genre fans.**
+Genre counts are `lofi=3, pop=2`, and everything else appears once. A lofi or pop
+fan gets a coherent, on-taste list; a metal, classical, or reggae fan gets
+*exactly one* genre match and the rest of their top-5 is filled by strangers
+matched only on energy. The same applies to the ~14 moods that appear only once.
+
+**6. Three measured features are ignored.**
+`tempo_bpm`, `valence`, and `danceability` are loaded but never scored. This
+matters most for `valence` (0–1 positivity): it directly measures how "happy" a
+track is, yet mood matching relies entirely on the text label rather than the
+number that actually captures the feeling.
+
+**7. Rankings never change.**
+Ties keep CSV order (lowest `id` wins) and there is no randomization, so a given
+profile returns the identical list on every run — no rotation, no freshness.
+
+**8. Invalid input is not validated (garbage in, garbage out).**
+Because energy closeness is never clamped, an out-of-range `energy` (e.g. `100`)
+sends every score massively negative and silently hijacks the ranking; a
+*negative* energy inverts the intent entirely (it starts rewarding low-energy
+songs) while still producing plausible-looking scores. Case also matters —
+`"Pop"` never matches `"pop"`, so the genre bonus vanishes with no warning.
+
+I go deeper on the fairness implications of these in the model card.
 
 ---
 

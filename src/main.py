@@ -16,7 +16,9 @@ def main() -> None:
     songs = load_songs("data/songs.csv") 
 
     # Starter example profile
-    user_prefs = {"genre": "pop", "mood": "happy", "energy": 0.8}
+    user_prefs = {"genre": "pop", "mood": "happy", "energy": 0.8, "likes_acoustic": True}
+    user_prefs_1 = {"genre": "rock", "mood": "sad", "energy": -1.0, "likes_acoustic": True}
+    user_prefs_2 = {"genre": "jazz", "mood": "sad", "energy": 1.0, "likes_acoustic": False}
 
     recommendations = recommend_songs(user_prefs, songs, k=5)
 
@@ -24,7 +26,7 @@ def main() -> None:
     print("=" * 60)
     print("  TOP RECOMMENDATIONS")
     print(f"  For: genre={user_prefs['genre']}, "
-          f"mood={user_prefs['mood']}, energy={user_prefs['energy']}")
+          f"mood={user_prefs['mood']}, energy={user_prefs['energy']}, likes_acoustic={user_prefs['likes_acoustic']}")
     print("=" * 60)
 
     for rank, rec in enumerate(recommendations, start=1):
